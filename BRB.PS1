@@ -1,4 +1,3 @@
-﻿# Variáveis principais
 $ChromePath = "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
 $ChromeExtId = "oocinbphmhafgohfmjiakojglnpfkcmh"
 $ChromeExtUpdateURL = "https://clients2.google.com/service/update2/crx"
