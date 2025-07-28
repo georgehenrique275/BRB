@@ -1,4 +1,3 @@
-# Variáveis principais
 $ChromePath = "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
 $ExtURL = "https://chromewebstore.google.com/detail/assinador-digital-do-brbj/oocinbphmhafgohfmjiakojglnpfkcmh"
 
