@@ -1,6 +1,6 @@
+# Variáveis principais
 $ChromePath = "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
-$ChromeExtId = "oocinbphmhafgohfmjiakojglnpfkcmh"
-$ChromeExtUpdateURL = "https://clients2.google.com/service/update2/crx"
+$ExtURL = "https://chromewebstore.google.com/detail/assinador-digital-do-brbj/oocinbphmhafgohfmjiakojglnpfkcmh"
 
 $JavaURL = "https://javadl.oracle.com/webapps/download/AutoDL?xd_co_f=NzExNjUxYzgtYTk1ZS00NjBiLWE2ZjEtNTg4NDQ5Mzc5MTU1&BundleId=252322_68ce765258164726922591683c51982c"
 $JavaInstaller = "$env:TEMP\java-installer.exe"
@@ -9,6 +9,7 @@ $JarURL = "https://sjb.brb.com.br/assinador/sjb-instalador-assinador-1.3.0.jar"
 $JarPath = "$env:TEMP\sjb-instalador-assinador.jar"
 
 $BRBJusURL = "https://brbjus-tjpb.brb.com.br/"
+$TestadorURL = "https://sjb.brb.com.br/assinador/"
 $ShortcutPath = "$env:Public\Desktop\Acessar BRBJUS.lnk"
 
 # Função para baixar arquivos
@@ -22,25 +23,19 @@ if (-Not (Test-Path $ChromePath)) {
     exit 1
 }
 
-# Verificar se o Chrome está atualizado
-Write-Host "✅ Verificando atualização do Google Chrome..."
-$ChromeVer = & "$ChromePath" --version
-$UpdatePath = "$env:ProgramFiles\Google\Update\GoogleUpdate.exe"
-if (Test-Path $UpdatePath) {
-    Write-Host "🔄 Atualizando Google Chrome (se necessário)..."
-    Start-Process $UpdatePath -ArgumentList "/ua /installsource scheduler" -Wait
-} else {
-    Write-Host "⚠️ Atualizador do Chrome não encontrado. Pular atualização." -ForegroundColor Yellow
-}
+# Abrir extensão no navegador para o usuário instalar manualmente
+Write-Host "🧩 Abrindo a extensão do BRB para instalação manual..."
+Start-Process -FilePath $ChromePath -ArgumentList "--new-window $ExtURL"
 
-# Instalar extensão via política local
-Write-Host "📦 Forçando instalação da extensão BRBJUS no Chrome..."
-$RegPath = "HKLM:\Software\Policies\Google\Chrome\ExtensionInstallForcelist"
-if (-not (Test-Path $RegPath)) {
-    New-Item -Path "HKLM:\Software\Policies\Google" -Name "Chrome" -Force | Out-Null
-    New-Item -Path "HKLM:\Software\Policies\Google\Chrome" -Name "ExtensionInstallForcelist" -Force | Out-Null
+Write-Host ""
+Write-Host "⚠️ Aguarde até o usuário instalar a extensão e fechar o navegador." -ForegroundColor Yellow
+Write-Host "🔒 Pressione [ENTER] SOMENTE após fechar o Chrome."
+Read-Host "⏳"
+
+# Criar pasta TEMP (se não existir)
+if (-Not (Test-Path $env:TEMP)) {
+    New-Item -ItemType Directory -Path $env:TEMP | Out-Null
 }
-Set-ItemProperty -Path $RegPath -Name "1" -Value "$ChromeExtId;$ChromeExtUpdateURL"
 
 # Baixar e instalar o Java
 Write-Host "☕ Baixando instalador do Java..."
@@ -48,13 +43,19 @@ Download-File $JavaURL $JavaInstaller
 Write-Host "📦 Instalando Java em modo silencioso..."
 Start-Process -FilePath $JavaInstaller -ArgumentList "/s" -Wait
 
+# Verificar se o java está no PATH
+if (-not (Get-Command "java.exe" -ErrorAction SilentlyContinue)) {
+    Write-Host "❌ Java não foi detectado no PATH. Reinicie o PC e tente novamente." -ForegroundColor Red
+    exit 1
+}
+
 # Baixar e executar o assinador BRB
 Write-Host "📥 Baixando o instalador do assinador BRB..."
 Download-File $JarURL $JarPath
 Write-Host "🚀 Executando o instalador do assinador com Java..."
 Start-Process -FilePath "java" -ArgumentList "-jar `"$JarPath`"" -Wait
 
-# Criar atalho na área de trabalho
+# Criar atalho para o BRBJUS na área de trabalho
 Write-Host "🔗 Criando atalho para o BRBJUS na área de trabalho..."
 $WScriptShell = New-Object -ComObject WScript.Shell
 $Shortcut = $WScriptShell.CreateShortcut($ShortcutPath)
@@ -63,8 +64,12 @@ $Shortcut.Arguments = "--new-window $BRBJusURL"
 $Shortcut.IconLocation = "$ChromePath"
 $Shortcut.Save()
 
-# Abrir link no Chrome
-Write-Host "🌐 Abrindo BRBJUS no navegador..."
+# Abrir o site do BRBJUS
+Write-Host "🌐 Abrindo o site do BRB..."
 Start-Process -FilePath $ChromePath -ArgumentList "--new-window $BRBJusURL"
 
-Write-Host "`n✅ Processo concluído com sucesso!" -ForegroundColor Green
+# Abrir o testador do assinador
+Write-Host "🧪 Abrindo o testador do assinador..."
+Start-Process -FilePath $ChromePath -ArgumentList "--new-window $TestadorURL"
+
+Write-Host "`n✅ Instalação concluída com sucesso!" -ForegroundColor Green
