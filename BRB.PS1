@@ -1,3 +1,4 @@
+
 $chromePath = "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
 if (-not (Test-Path $chromePath)) {
     $chromePath = "$env:ProgramFiles(x86)\Google\Chrome\Application\chrome.exe"
