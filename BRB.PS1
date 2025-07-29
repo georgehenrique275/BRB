@@ -1,5 +1,12 @@
-
 $chromePath = "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
+if (-not (Test-Path $chromePath)) {
+    $chromePath = "$env:ProgramFiles(x86)\Google\Chrome\Application\chrome.exe"
+}
+if (-not (Test-Path $chromePath)) {
+    Write-Host "❌ Google Chrome não encontrado. Instale-o antes de continuar." -ForegroundColor Red
+    exit 1
+}
+
 $chromeExtURL = "https://chromewebstore.google.com/detail/assinador-digital-do-brbj/oocinbphmhafgohfmjiakojglnpfkcmh?pli=1"
 $javaURL = "https://javadl.oracle.com/webapps/download/AutoDL?xd_co_f=NzExNjUxYzgtYTk1ZS00NjBiLWE2ZjEtNTg4NDQ5Mzc5MTU1&BundleId=252322_68ce765258164726922591683c51982c"
 $javaInstaller = "$env:TEMP\java-installer.exe"
@@ -21,14 +28,8 @@ function Download-File($url, $dest) {
     Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing
 }
 
-# Verificar se o Chrome está instalado
-if (-Not (Test-Path $chromePath)) {
-    Write-Host "❌ Google Chrome não encontrado. Instale-o antes de continuar." -ForegroundColor Red
-    exit 1
-}
-
-# Etapa 1: Atualizar o Chrome (opcional)
-Write-Host "✅ Verificando atualização do Google Chrome..."
+# Verificar atualização do Chrome (opcional)
+Write-Host "✅ Verificando atualização do Google Chrome..." 
 $updatePath = "$env:ProgramFiles\Google\Update\GoogleUpdate.exe"
 if (Test-Path $updatePath) {
     Start-Process $updatePath -ArgumentList "/ua /installsource scheduler" -Wait
@@ -36,9 +37,82 @@ if (Test-Path $updatePath) {
     Write-Host "⚠️ Atualizador do Chrome não encontrado. Continuando..." -ForegroundColor Yellow
 }
 
+# ===========================
+# INÍCIO DA INTEGRAÇÃO SCRIPT 1
+# Mostrar e escolher perfil Chrome
+# ===========================
+
+$chromeUserDataPath = "$env:LOCALAPPDATA\Google\Chrome\User Data"
+if (-not (Test-Path $chromeUserDataPath)) {
+    Write-Host "❌ Diretório de perfis do Chrome não encontrado." -ForegroundColor Red
+    exit 1
+}
+
+$profiles = Get-ChildItem -Path $chromeUserDataPath -Directory |
+    Where-Object { $_.Name -like "Profile *" -or $_.Name -eq "Default" }
+
+if ($profiles.Count -eq 0) {
+    Write-Host "❌ Nenhum perfil encontrado no Chrome." -ForegroundColor Red
+    exit 1
+}
+
+if ($profiles.Count -eq 1) {
+    $perfilSelecionado = $profiles[0].Name
+    Write-Host "✅ Apenas um perfil encontrado: $perfilSelecionado"
+} else {
+    Write-Host "Perfis disponíveis no Chrome:" -ForegroundColor Cyan
+    for ($i = 0; $i -lt $profiles.Count; $i++) {
+        $profileName = $profiles[$i].Name
+        $prefFile = Join-Path $profiles[$i].FullName "Preferences"
+        $displayName = $profileName
+        $email = ""
+        if (Test-Path $prefFile) {
+            try {
+                $json = Get-Content $prefFile -Raw | ConvertFrom-Json
+
+                $friendlyName = $json.profile.name
+                if ($friendlyName) { $displayName += " (`"$friendlyName`")" }
+
+                if ($json.account_info -and $json.account_info.Count -gt 0) {
+                    $email = $json.account_info[0].email
+                } elseif ($json.gaia_info.email) {
+                    $email = $json.gaia_info.email
+                } elseif ($json.profile.email) {
+                    $email = $json.profile.email
+                }
+            } catch {
+                $email = ""
+            }
+        }
+
+        if ($email) {
+            Write-Host "$($i + 1)) $displayName - 📧 $email"
+        } else {
+            Write-Host "$($i + 1)) $displayName"
+        }
+    }
+
+    do {
+        $escolha = Read-Host "Digite o número do perfil que deseja usar"
+        $valido = ($escolha -match '^\d+$') -and ([int]$escolha -ge 1) -and ([int]$escolha -le $profiles.Count)
+        if (-not $valido) {
+            Write-Host "❌ Opção inválida." -ForegroundColor Red
+        }
+    } while (-not $valido)
+
+    $perfilSelecionado = $profiles[[int]$escolha - 1].Name
+    Write-Host "✅ Perfil selecionado: $perfilSelecionado"
+}
+
+# ===========================
+# FIM DA INTEGRAÇÃO SCRIPT 1
+# ===========================
+
+# Agora usamos $perfilSelecionado para abrir o link da extensão no Chrome
+
 # Etapa 2: Abrir link da extensão no Chrome para o usuário instalar manualmente
-Write-Host "🌐 Abrindo link da extensão BRBJUS no Chrome para instalação..."
-Start-Process -FilePath $chromePath -ArgumentList $chromeExtURL
+Write-Host "🌐 Abrindo link da extensão BRBJUS no perfil '$perfilSelecionado' para instalação..." 
+Start-Process -FilePath $chromePath -ArgumentList "--profile-directory=`"$perfilSelecionado`" $chromeExtURL"
 
 function Esperar-ChromeFechar {
     Write-Host "`n⏳ Aguarde até que o navegador seja fechado após instalar a extensão. Pressione Enter para continuar quando estiver pronto..." -ForegroundColor Cyan
@@ -54,7 +128,7 @@ if (-Not (Test-Path $env:TEMP)) {
 }
 
 # Etapa 4: Baixar e instalar o Java
-Write-Host "☕ Baixando instalador do Java..."
+Write-Host "☕ Baixando instalador do Java..." 
 Download-File $javaURL $javaInstaller
 
 Write-Host "📦 Instalando Java em modo silencioso..."
@@ -136,17 +210,17 @@ if ($chromeProcesses) {
     Write-Host "ℹ️ Nenhum processo do Google Chrome encontrado."
 }
 
-# Etapa 8: Criar atalho e abrir BRBJUS + testador
+# Etapa 8: Criar atalho e abrir BRBJUS + testador no perfil selecionado
 Write-Host "🔗 Criando atalho na área de trabalho..."
 $WScriptShell = New-Object -ComObject WScript.Shell
 $Shortcut = $WScriptShell.CreateShortcut($shortcutPath)
 $Shortcut.TargetPath = $chromePath
-$Shortcut.Arguments = "--new-window $brbjusURL"
+$Shortcut.Arguments = "--profile-directory=`"$perfilSelecionado`" --new-window $brbjusURL"
 $Shortcut.IconLocation = "$chromePath"
 $Shortcut.Save()
 
-# Abrir BRBJUS e testador em abas separadas
-Write-Host "🌐 Abrindo BRBJUS e testador no navegador..."
-Start-Process -FilePath $chromePath -ArgumentList "--new-window $brbjusURL $testadorURL"
+# Abrir BRBJUS e testador em abas separadas no perfil selecionado
+Write-Host "🌐 Abrindo BRBJUS e testador no perfil '$perfilSelecionado'..."
+Start-Process -FilePath $chromePath -ArgumentList "--profile-directory=`"$perfilSelecionado`" --new-window $brbjusURL $testadorURL"
 
 Write-Host "`n✅ Processo concluído com sucesso!" -ForegroundColor Green
