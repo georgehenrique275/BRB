@@ -1,3 +1,11 @@
+# Reexecuta o script como Administrador se não estiver elevado
+if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Host "Reexecutando como administrador..."
+    $CommandLine = "-ExecutionPolicy Bypass -File `"$PSCommandPath`""
+    Start-Process powershell -Verb runAs -ArgumentList $CommandLine
+    exit
+}
 
 $chromePath = "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
 if (-not (Test-Path $chromePath)) {
@@ -9,13 +17,57 @@ if (-not (Test-Path $chromePath)) {
 }
 
 $chromeExtURL = "https://chromewebstore.google.com/detail/assinador-digital-do-brbj/oocinbphmhafgohfmjiakojglnpfkcmh?pli=1"
-$javaURL = "https://javadl.oracle.com/webapps/download/AutoDL?xd_co_f=NzExNjUxYzgtYTk1ZS00NjBiLWE2ZjEtNTg4NDQ5Mzc5MTU1&BundleId=252322_68ce765258164726922591683c51982c"
-$javaInstaller = "$env:TEMP\java-installer.exe"
 $jarURL = "https://sjb.brb.com.br/assinador/sjb-instalador-assinador-1.3.0.jar"
 $jarPath = "$env:TEMP\sjb-instalador-assinador.jar"
 $brbjusURL = "https://brbjus-tjpb.brb.com.br/"
 $testadorURL = "https://sjb.brb.com.br/assinador/"
 $shortcutPath = "$env:Public\Desktop\Acessar BRBJUS.lnk"
+
+# ===========================
+# FUNÇÕES INTEGRADAS DO SCRIPT 1 (JAVA)
+# ===========================
+
+function Write-Log($msg) {
+    $timestamp = Get-Date -Format "HH:mm:ss"
+    Write-Host "[$timestamp] $msg"
+}
+
+function Remove-JavaX86 {
+    Write-Log "Removendo instalações existentes do Java..."
+    $javaApps = Get-WmiObject -Class Win32_Product | Where-Object {
+        ($_.Name -match "Java" -or $_.Name -match "JRE" -or $_.Name -match "OpenJDK" -or $_.Name -match "Liberica") -and
+        $_.Name -notlike "*Liberica JRE 8 Full (64-bit)*"
+    }
+    foreach ($app in $javaApps) {
+        Write-Log "Desinstalando: $($app.Name)"
+        try {
+            $app.Uninstall() | Out-Null
+            Write-Log "Removido com sucesso: $($app.Name)"
+        } catch {
+            Write-Log "Erro ao remover $($app.Name): $_"
+        }
+    }
+}
+
+function Install-JavaJRE {
+    $javaUrl = "https://download.bell-sw.com/java/8u462+11/bellsoft-jre8u462+11-windows-amd64-full.msi"
+    $installerPath = "$env:TEMP\bellsoft-jre8u462.msi"
+    Write-Log "Baixando instalador do BellSoft Java JRE 8u462..."
+    Invoke-WebRequest -Uri $javaUrl -OutFile $installerPath
+    if (Test-Path $installerPath) {
+        Write-Log "Instalador baixado com sucesso. Instalando em modo silencioso..."
+        $installArgs = "/i `"$installerPath`" /qn /norestart"
+        Start-Process "msiexec.exe" -ArgumentList $installArgs -Wait -NoNewWindow
+        Write-Log "Instalação do Java concluída."
+        Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
+    } else {
+        Write-Log "Erro: Falha ao baixar o instalador. Verifique a URL."
+    }
+}
+
+# ===========================
+# FUNÇÕES ORIGINAIS DO SCRIPT 2
+# ===========================
 
 # Função para baixar arquivos
 function Download-File($url, $dest) {
@@ -39,8 +91,7 @@ if (Test-Path $updatePath) {
 }
 
 # ===========================
-# INÍCIO DA INTEGRAÇÃO SCRIPT 1
-# Mostrar e escolher perfil Chrome
+# SELEÇÃO DE PERFIL DO CHROME
 # ===========================
 
 $chromeUserDataPath = "$env:LOCALAPPDATA\Google\Chrome\User Data"
@@ -105,12 +156,6 @@ if ($profiles.Count -eq 1) {
     Write-Host "✅ Perfil selecionado: $perfilSelecionado"
 }
 
-# ===========================
-# FIM DA INTEGRAÇÃO SCRIPT 1
-# ===========================
-
-# Agora usamos $perfilSelecionado para abrir o link da extensão no Chrome
-
 # Etapa 2: Abrir link da extensão no Chrome para o usuário instalar manualmente
 Write-Host "🌐 Abrindo link da extensão BRBJUS no perfil '$perfilSelecionado' para instalação..." 
 Start-Process -FilePath $chromePath -ArgumentList "--profile-directory=`"$perfilSelecionado`" $chromeExtURL"
@@ -128,57 +173,18 @@ if (-Not (Test-Path $env:TEMP)) {
     New-Item -Path $env:TEMP -ItemType Directory -Force | Out-Null
 }
 
-# Etapa 4: Baixar e instalar o Java
-Write-Host "☕ Baixando instalador do Java..." 
-Download-File $javaURL $javaInstaller
+# ===========================
+# INSTALAÇÃO DO JAVA (USANDO FUNÇÕES DO SCRIPT 1)
+# ===========================
 
-Write-Host "📦 Instalando Java em modo silencioso..."
-try {
-    Start-Process -FilePath $javaInstaller -ArgumentList "/s" -Wait -ErrorAction Stop
-} catch {
-    Write-Host "⚠️ Erro ao instalar Java. Pode já estar instalado ou o instalador falhou." -ForegroundColor Yellow
-}
+Write-Log "=== INÍCIO DA INSTALAÇÃO/ATUALIZAÇÃO DO JAVA ==="
+Remove-JavaX86
+Install-JavaJRE
+Write-Log "=== JAVA INSTALADO COM SUCESSO ==="
 
-# Etapa 5: Verificar se o Java foi instalado e está no PATH
-function Test-Java {
-    try {
-        $java = & java -version 2>&1
-        return $true
-    } catch {
-        return $false
-    }
-}
-
-if (-Not (Test-Java)) {
-    # Tentar localizar instalação do Java
-    $possiblePaths = @(
-        "${env:ProgramFiles}\Java\jre*\bin\java.exe",
-        "${env:ProgramFiles(x86)}\Java\jre*\bin\java.exe"
-    )
-
-    $foundJava = $null
-    foreach ($path in $possiblePaths) {
-        $match = Get-ChildItem -Path $path -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($match) {
-            $foundJava = $match.FullName
-            break
-        }
-    }
-
-    if ($foundJava) {
-        # Adicionar ao PATH permanentemente
-        Write-Host "➕ Java encontrado em: $foundJava"
-        $javaDir = Split-Path $foundJava -Parent
-        $currentPath = [Environment]::GetEnvironmentVariable("Path", [EnvironmentVariableTarget]::Machine)
-        if ($currentPath -notlike "*$javaDir*") {
-            [Environment]::SetEnvironmentVariable("Path", "$currentPath;$javaDir", [EnvironmentVariableTarget]::Machine)
-            Write-Host "✅ Caminho do Java adicionado ao PATH (permanente)."
-        }
-    } else {
-        Write-Host "❌ Java não foi detectado. Instale manualmente ou reinicie o PC." -ForegroundColor Red
-        exit 1
-    }
-}
+# ===========================
+# CONTINUAÇÃO DO SCRIPT 2 ORIGINAL
+# ===========================
 
 # Etapa 6: Baixar e executar assinador BRB
 Write-Host "📥 Baixando instalador do assinador BRB..."
@@ -194,12 +200,10 @@ if ($chromeProcesses) {
     foreach ($process in $chromeProcesses) {
         try {
             if ($process.MainModule.FileName -like "*\Google\Chrome\Application\chrome.exe") {
-                if ($process.MainWindowTitle -notlike "*Google Chat*") {
-                    $process.CloseMainWindow() | Out-Null
-                    Start-Sleep -Milliseconds 500
-                    if (!$process.HasExited) {
-                        $process.Kill()
-                    }
+                $process.CloseMainWindow() | Out-Null
+                Start-Sleep -Milliseconds 500
+                if (!$process.HasExited) {
+                    $process.Kill()
                 }
             }
         } catch {
